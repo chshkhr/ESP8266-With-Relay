@@ -245,10 +245,10 @@ void initpostForms(void) {
 
   if (Ping.ping(serverip)) {
     Serial.println("Ping succesful.");
-    butLbl = "Off";
+    butLbl = "Turn Off";
   } else {
     Serial.println("Ping failed");
-    butLbl = "On";
+    butLbl = "Turn On";
   }
 
   postForms = "<form method=\"post\" enctype=\"application/x-www-form-urlencoded\" action=\"/switch/\">\
