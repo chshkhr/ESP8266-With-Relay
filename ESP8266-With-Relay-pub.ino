@@ -8,6 +8,7 @@ bool blynk = false;
 #endif
 
 #define WEB_PASSWORD "your password"
+#define FIRMWARE_FOLDER "http://192.168.0.43/espfw/"
 
 int L0 = 0;
 int L1 = 1;
@@ -239,6 +240,96 @@ void match_callback(const char* match,          // matching string (not null-ter
 
 }  // end of match_callback
 
+void initpostForms(void) {
+  String butLbl;
+
+  if (Ping.ping(serverip)) {
+    Serial.println("Ping succesful.");
+    butLbl = "Off";
+  } else {
+    Serial.println("Ping failed");
+    butLbl = "On";
+  }
+
+  postForms = "<form method=\"post\" enctype=\"application/x-www-form-urlencoded\" action=\"/switch/\">\
+      <table>\
+      <tr><td><label for=\"password\">Password: </label></td>\
+      <td><input type=\"password\" id=\"password\" name=\"password\" value=\"\" required></td></tr>\
+      <tr><td><label for=id=\"delay\">Delay: </label></td> \
+      <td align=\"right\"><select id=\"delay\" name=\"delay\">\
+        <option value=\"50\">50ms</option>\
+        <option value=\"100\">100ms</option>\
+        <option value=\"200\">200ms</option>\
+        <option value=\"300\" selected>300ms</option>\
+        <option value=\"500\">500ms</option>\
+        <option value=\"1000\">1s</option>\
+        <option value=\"1500\">1.5s</option>\
+        <option value=\"2000\">2s</option>\
+        <option value=\"3000\">3s</option>\
+        <option value=\"5000\">5s</option>\
+        <option value=\"10000\">10s</option>\
+        <option value=\"60000\">1m</option>\
+        <option value=\"3600000\">1h</option>\
+      </select></td></tr>\
+      <tr><td></td><td align=\"right\"><input type=\"submit\" value=\""
+              + butLbl + "\"></td></tr>\
+      </table>\
+      </form>\
+      <form method=\"post\" enctype=\"application/x-www-form-urlencoded\" action=\"/update/\">\
+      <table>\
+      <tr><td><label for=\"password\">Password: </label></td>\
+      <td><input type=\"password\" id=\"password\" name=\"password\" value=\"\" required></td></tr>\
+      <tr><td><label for=id=\"delay\">Firmware: </label></td> \
+      <td align=\"right\"><select id=\"firmware\" name=\"firmware\">\
+      <option value=\"reset\">Reset</option>";
+
+  WiFiClient client;
+  HTTPClient http;
+
+  Serial.print("[HTTP] begin...\n");
+  if (http.begin(client, FIRMWARE_FOLDER)) {  // HTTP
+
+
+    Serial.print("[HTTP] GET...\n");
+    // start connection and send HTTP header
+    int httpCode = http.GET();
+
+    // httpCode will be negative on error
+    if (httpCode > 0) {
+      // HTTP header has been send and Server response header has been handled
+      Serial.printf("[HTTP] GET... code: %d\n", httpCode);
+
+      // file found at server
+      if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY) {
+        String payload = http.getString();
+        Serial.println(payload);
+
+        unsigned long count;
+
+        int payload_len = payload.length() + 1;
+        char c_payload[payload_len];
+        payload.toCharArray(c_payload, payload_len);
+
+        // match state object
+        MatchState ms(c_payload);
+
+        count = ms.GlobalMatch("href=['\"]?([^'\" >]+)", match_callback);
+      }
+    } else {
+      Serial.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
+    }
+
+    http.end();
+  } else {
+    Serial.printf("[HTTP} Unable to connect\n");
+  }
+
+  postForms += "</select></td></tr>\
+    <tr><td></td><td align=\"right\"><input type=\"submit\" value=\"Reset/Update\"></td></tr>\
+    </table>\
+    </form>";
+}
+
 void setup(void) {
   WiFi.persistent(false);
 
@@ -314,92 +405,7 @@ void setup(void) {
           + device + "</h1>" + ssid + "<br>\
         <div>";
 
-    String butLbl;
-
-    if (Ping.ping(serverip)) {
-      Serial.println("Ping succesful.");
-      butLbl = "Off";
-    } else {
-      Serial.println("Ping failed");
-      butLbl = "On";
-    }
-
-    postForms = "<form method=\"post\" enctype=\"application/x-www-form-urlencoded\" action=\"/switch/\">\
-      <table>\
-      <tr><td><label for=\"password\">Password: </label></td>\
-      <td><input type=\"password\" id=\"password\" name=\"password\" value=\"\" required></td></tr>\
-      <tr><td><label for=id=\"delay\">Delay: </label></td> \
-      <td align=\"right\"><select id=\"delay\" name=\"delay\">\
-        <option value=\"50\">50ms</option>\
-        <option value=\"100\">100ms</option>\
-        <option value=\"200\">200ms</option>\
-        <option value=\"300\" selected>300ms</option>\
-        <option value=\"500\">500ms</option>\
-        <option value=\"1000\">1s</option>\
-        <option value=\"1500\">1.5s</option>\
-        <option value=\"2000\">2s</option>\
-        <option value=\"3000\">3s</option>\
-        <option value=\"5000\">5s</option>\
-        <option value=\"10000\">10s</option>\
-        <option value=\"60000\">1m</option>\
-        <option value=\"3600000\">1h</option>\
-      </select></td></tr>\
-      <tr><td></td><td align=\"right\"><input type=\"submit\" value=\""+butLbl+"\"></td></tr>\
-      </table>\
-      </form>\
-      <form method=\"post\" enctype=\"application/x-www-form-urlencoded\" action=\"/update/\">\
-      <table>\
-      <tr><td><label for=\"password\">Password: </label></td>\
-      <td><input type=\"password\" id=\"password\" name=\"password\" value=\"\" required></td></tr>\
-      <tr><td><label for=id=\"delay\">Firmware: </label></td> \
-      <td align=\"right\"><select id=\"firmware\" name=\"firmware\">\
-      <option value=\"reset\">Reset</option>";
-
-    WiFiClient client;
-    HTTPClient http;
-
-    Serial.print("[HTTP] begin...\n");
-    if (http.begin(client, "http://192.168.108.43:8080/win/winweb/espfw/")) {  // HTTP
-
-
-      Serial.print("[HTTP] GET...\n");
-      // start connection and send HTTP header
-      int httpCode = http.GET();
-
-      // httpCode will be negative on error
-      if (httpCode > 0) {
-        // HTTP header has been send and Server response header has been handled
-        Serial.printf("[HTTP] GET... code: %d\n", httpCode);
-
-        // file found at server
-        if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY) {
-          String payload = http.getString();
-          Serial.println(payload);
-
-          unsigned long count;
-
-          int payload_len = payload.length() + 1;
-          char c_payload[payload_len];
-          payload.toCharArray(c_payload, payload_len);
-
-          // match state object
-          MatchState ms(c_payload);
-
-          count = ms.GlobalMatch("href=['\"]?([^'\" >]+)", match_callback);
-        }
-      } else {
-        Serial.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
-      }
-
-      http.end();
-    } else {
-      Serial.printf("[HTTP} Unable to connect\n");
-    }
-
-    postForms += "</select></td></tr>\
-    <tr><td></td><td align=\"right\"><input type=\"submit\" value=\"Reset/Update\"></td></tr>\
-    </table>\
-    </form>";
+    initpostForms();
 
     server.on("/", handleRoot);
     server.on("/update/", handleUpdate);
@@ -414,8 +420,15 @@ void setup(void) {
   }
 }
 
+int i = 0;
+
 void loop(void) {
   if (WiFi.status() == WL_CONNECTED) {
+    i++;
+    if (i >= 1000) {
+      initpostForms();
+      i == 0;
+    }
     server.handleClient();
 #ifdef BLYNK
     if (blynk) {
