@@ -112,7 +112,9 @@ void handleUpdate() {
     String message = top;
 
     message += "<table><td>";
-    if (server.arg(0).equals(WEB_PASSWORD)) {
+
+    bool pswcorrect = server.arg(0).equals(WEB_PASSWORD);
+    if (pswcorrect) {
       //message += "<p style=\"background-color:MediumSeaGreen;\">SUCCESS</p>";
 
       if (server.arg(0).equals("reset")) {
@@ -125,10 +127,6 @@ void handleUpdate() {
       message += bot;
       server.send(200, "text/html", message);
       digitalWrite(led, 0);
-
-      if (server.arg(0).equals("reset")) {
-        resetFunc();
-      }
 
       WiFiClient client;
 
@@ -162,6 +160,15 @@ void handleUpdate() {
 
     } else {
       message += "<p style=\"background-color:Tomato;\">FAIL</p>";
+    }
+
+    message += "</td></table>";
+    message += bot;
+    server.send(200, "text/html", message);
+    digitalWrite(led, 0);
+
+    if (pswcorrect && server.arg(1).equals("reset")) {
+      resetFunc();
     }
   }
 }
@@ -242,14 +249,16 @@ void match_callback(const char* match,          // matching string (not null-ter
 }  // end of match_callback
 
 void initpostForms(void) {
-  String butLbl;
+  String butLbl, color;
 
   if (Ping.ping(serverip)) {
     Serial.println("Ping succesful.");
     butLbl = "Turn Off";
+    color = "red";
   } else {
     Serial.println("Ping failed");
     butLbl = "Turn On";
+    color = "gray";
   }
 
   postForms = "<form method=\"post\" enctype=\"application/x-www-form-urlencoded\" action=\"/switch/\">\
@@ -272,8 +281,8 @@ void initpostForms(void) {
         <option value=\"60000\">1m</option>\
         <option value=\"3600000\">1h</option>\
       </select></td></tr>\
-      <tr><td></td><td align=\"right\"><input type=\"submit\" value=\""
-              + butLbl + "\"></td></tr>\
+      <tr><td align=\"right\"><span class=\"dot"+color+"\"></span></td>\
+      <td align=\"right\"><input type=\"submit\" value=\"" + butLbl + "\"></td></tr>\
       </table>\
       </form>\
       <form method=\"post\" enctype=\"application/x-www-form-urlencoded\" action=\"/update/\">\
@@ -392,12 +401,29 @@ void setup(void) {
           body { background-color: #cccccc; font-family: Arial, Helvetica, Sans-Serif; Color: #000088; }\
           table {\
             border: 1px solid #4CAF50;\
+            border-radius: 5px;\
             padding: 20px;\
             margin-top: 10px;\
             margin-bottom: 10px;\
             margin-right: 10px;\
             margin-left: 30px;\
             background-color: lightblue;\
+          }\
+          .dotgray {\
+            height: 20px;\
+            width: 20px;\
+            background-color: #bbb;\
+            border-radius: 50%;\
+            border: 1px solid #4CAF50;\
+            display: inline-block;\
+          }\
+          .dotred {\
+            height: 20px;\
+            width: 20px;\
+            background-color: red;\
+            border-radius: 50%;\
+            border: 1px solid #4CAF50;\
+            display: inline-block;\
           }\
         </style>\
       </head>\
