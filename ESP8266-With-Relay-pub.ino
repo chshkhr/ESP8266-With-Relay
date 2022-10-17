@@ -16,6 +16,7 @@ int L1 = 1;
 #include <WiFiClient.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266mDNS.h>
+#include <ESP8266Ping.h>
 
 #ifdef BLYNK
 #include <BlynkSimpleEsp8266.h>
@@ -34,14 +35,18 @@ ESP8266WiFiMulti wifiMulti;
 
 const int numssisds = 5;
 const char* ssids[numssisds] = { "WiFi-AP1", "WiFi-AP2", "WiFi-AP3" };
-const char* pass = "your password";
+const char* pass = "your wifi password";
 const int numpcs = 4;
-const char* pcs[numpcs][4] = {
-  { "192.168.108.193", "HomePC", "BLYNK_AUTH_TOKEN_1", "d" },
-  { "192.168.108.194", "BeeLink", "BLYNK_AUTH_TOKEN_2", "d" },
-  { "192.168.108.195", "BeeLinkN50 (local only)", "", "r" },
-  { "192.168.108.196", "EldarPK (local only)", "", "r" }
+const char* pcs[numpcs][5] = {
+  { "192.168.0.193", "PC name 1", "BLYNK_AUTH_TOKEN_1", "d", "192.168.0.4" },
+  { "192.168.0.194", "PC name 2", "BLYNK_AUTH_TOKEN_2", "d", "192.168.0.34" },
+  { "192.168.0.195", "PC name 3 (local only)", "", "r", "192.168.0.50" },
+  { "192.168.0.196", "PC name 4 (local only)", "", "r", "192.168.0.3" }
 };
+
+String ssid;
+String device;
+IPAddress serverip;
 
 const int bldelay = 300;
 
@@ -252,13 +257,14 @@ void setup(void) {
 
   Serial.println("Connecting...");
   if (wifiMulti.run(connectTimeoutMs) == WL_CONNECTED) {
-    String ssid = WiFi.SSID();
-    String device = WiFi.localIP().toString();
+    ssid = WiFi.SSID();
+    device = WiFi.localIP().toString();
     Serial.println(String("Connected: ") + ssid + " - " + device);
 
     for (int i = 0; i < numpcs; i++) {
       if (device.equals(pcs[i][0])) {
         device = pcs[i][1];
+        serverip.fromString(pcs[i][4]);
         if (pcs[i][3] == "r") {
           L0 = 1;
           L1 = 0;
@@ -308,6 +314,16 @@ void setup(void) {
           + device + "</h1>" + ssid + "<br>\
         <div>";
 
+    String butLbl;
+
+    if (Ping.ping(serverip)) {
+      Serial.println("Ping succesful.");
+      butLbl = "Off";
+    } else {
+      Serial.println("Ping failed");
+      butLbl = "On";
+    }
+
     postForms = "<form method=\"post\" enctype=\"application/x-www-form-urlencoded\" action=\"/switch/\">\
       <table>\
       <tr><td><label for=\"password\">Password: </label></td>\
@@ -328,7 +344,7 @@ void setup(void) {
         <option value=\"60000\">1m</option>\
         <option value=\"3600000\">1h</option>\
       </select></td></tr>\
-      <tr><td></td><td align=\"right\"><input type=\"submit\" value=\"On/Off\"></td></tr>\
+      <tr><td></td><td align=\"right\"><input type=\"submit\" value=\""+butLbl+"\"></td></tr>\
       </table>\
       </form>\
       <form method=\"post\" enctype=\"application/x-www-form-urlencoded\" action=\"/update/\">\
