@@ -28,8 +28,6 @@ int L1 = 1;
 #include <Arduino.h>
 #include <ESP8266HTTPClient.h>
 #include <ESP8266httpUpdate.h>
-
-#include <ESP8266HTTPClient.h>
 #include <Regexp.h>
 
 ESP8266WiFiMulti wifiMulti;
@@ -46,7 +44,7 @@ const char* pcs[numpcs][5] = {
 };
 
 String ssid;
-String device;
+String device, deviceip;
 IPAddress serverip;
 
 const int bldelay = 300;
@@ -101,6 +99,95 @@ void update_error(int err) {
 
 void (*resetFunc)(void) = 0;  //declare reset function @ address 0
 
+void updateOtherDevice(String devip, String firmware) {
+  if (WiFi.status() == WL_CONNECTED) {
+
+    WiFiClient client;
+    HTTPClient http;
+
+    String url = "http://" + devip + "/remote/" + "?pswupd=" + WEB_PASSWORD + "&firmware=" + firmware;
+    http.begin(client, url);  //HTTP
+    http.addHeader("Content-Type", "text/html");
+
+    //Serial.println(url);
+
+    int httpCode = http.GET();
+
+    //Serial.println(httpCode);
+
+    // httpCode will be negative on error
+    if (httpCode > 0) {
+      // HTTP header has been send and Server response header has been handled
+      //Serial.printf("UPDATE %s: %d\n", devip, httpCode);
+
+      // file found at server
+      if (httpCode == HTTP_CODE_OK) {
+        const String& payload = http.getString();
+        //Serial.println("received payload:\n<<");
+        Serial.println(payload);
+        //Serial.println(">>");
+      }
+    } else {
+      Serial.printf("UPDATE %s failed, error: %s\n",
+                    devip,
+                    http.errorToString(httpCode).c_str());
+    }
+
+    http.end();
+  }
+}
+
+void updateOthers(String firmware) {
+  for (int i = 0; i < numpcs; i++) {
+    if (!deviceip.equals(pcs[i][0])) {
+      Serial.println(deviceip + " is sending update request to " + pcs[i][0]);
+      updateOtherDevice(pcs[i][0], firmware);
+    }
+  }
+};
+
+void update(String firmware) {
+  Serial.print("Update with ");
+  Serial.print(firmware);
+  Serial.println("...");
+
+  WiFiClient client;
+
+  ESPhttpUpdate.setLedPin(LED_BUILTIN, LOW);
+
+  ESPhttpUpdate.onStart(update_started);
+  ESPhttpUpdate.onEnd(update_finished);
+  ESPhttpUpdate.onProgress(update_progress);
+  ESPhttpUpdate.onError(update_error);
+
+  t_httpUpdate_return ret = ESPhttpUpdate.update(client, FIRMWARE_FOLDER + firmware);
+
+  switch (ret) {
+    case HTTP_UPDATE_FAILED:
+      Serial.printf("HTTP_UPDATE_FAILD Error (%d): %s\n", ESPhttpUpdate.getLastError(), ESPhttpUpdate.getLastErrorString().c_str());
+      resetFunc();
+      break;
+
+    case HTTP_UPDATE_NO_UPDATES:
+      Serial.println("HTTP_UPDATE_NO_UPDATES");
+      resetFunc();
+      break;
+
+    case HTTP_UPDATE_OK:
+      Serial.println("HTTP_UPDATE_OK");
+      break;
+  }
+}
+
+void handleRemote() {
+  digitalWrite(led, 1);
+  server.send(200, "text/plain", "- OK -");
+  if (server.arg("pswupd").equals(WEB_PASSWORD)) {
+    update(server.arg("firmware"));
+  };
+  digitalWrite(led, 0);
+}
+
 void handleUpdate() {
   if (server.method() != HTTP_POST) {
     digitalWrite(led, 1);
@@ -111,51 +198,31 @@ void handleUpdate() {
     char buffer[40];
     String message = top;
 
+    //message += server.arg("plain");
+
     message += "<table><td>";
 
-    bool pswcorrect = server.arg(0).equals(WEB_PASSWORD);
+    bool pswcorrect = server.arg("pswupd").equals(WEB_PASSWORD);
     if (pswcorrect) {
       //message += "<p style=\"background-color:MediumSeaGreen;\">SUCCESS</p>";
 
-      if (server.arg(0).equals("reset")) {
+      if (server.arg("firmware").equals("reset")) {
         message += "<p>RESETING</p>";
       } else {
-        message += "<p>UPDATE STARTED</p>";
-      }
 
-      message += "</td></table>";
-      message += bot;
-      server.send(200, "text/html", message);
-      digitalWrite(led, 0);
+        if (server.arg("alldev").equals("yes")) {
+          message += "<p>UPDATE ALL DEVICES</p>";
+          updateOthers(server.arg("firmware"));
+        } else {
+          message += "<p>UPDATE STARTED</p>";
+        }
 
-      WiFiClient client;
-
-      ESPhttpUpdate.setLedPin(LED_BUILTIN, LOW);
-
-      ESPhttpUpdate.onStart(update_started);
-      ESPhttpUpdate.onEnd(update_finished);
-      ESPhttpUpdate.onProgress(update_progress);
-      ESPhttpUpdate.onError(update_error);
-
-
-      //Serial.println(server.arg(1));
-
-      t_httpUpdate_return ret = ESPhttpUpdate.update(client, "http://192.168.108.43:8080/win/winweb/espfw/" + server.arg(1));
-
-      switch (ret) {
-        case HTTP_UPDATE_FAILED:
-          Serial.printf("HTTP_UPDATE_FAILD Error (%d): %s\n", ESPhttpUpdate.getLastError(), ESPhttpUpdate.getLastErrorString().c_str());
-          resetFunc();
-          break;
-
-        case HTTP_UPDATE_NO_UPDATES:
-          Serial.println("HTTP_UPDATE_NO_UPDATES");
-          resetFunc();
-          break;
-
-        case HTTP_UPDATE_OK:
-          Serial.println("HTTP_UPDATE_OK");
-          break;
+        message += server.arg("firmware");
+        message += "</td></table>";
+        message += bot;
+        server.send(200, "text/html", message);
+        digitalWrite(led, 0);
+        update(server.arg("firmware"));
       }
 
     } else {
@@ -237,7 +304,7 @@ void match_callback(const char* match,          // matching string (not null-ter
   for (byte i = 0; i < ms.level; i++) {
     ms.GetCapture(cap, i);
     if (strcmp(cap, "../")) {
-      Serial.println(cap);
+      //Serial.println(cap);
       String s(cap);
       if (s.endsWith(".bin")) {
         postForms += "<option value=\"" + s + "\">" + s + "</option>";
@@ -251,12 +318,14 @@ void match_callback(const char* match,          // matching string (not null-ter
 void initpostForms(void) {
   String butLbl, color;
 
+  Serial.print("Ping ");
+  Serial.print(serverip);
   if (Ping.ping(serverip)) {
-    Serial.println("Ping succesful.");
+    Serial.println(" succesful");
     butLbl = "Turn Off";
     color = "red";
   } else {
-    Serial.println("Ping failed");
+    Serial.println(" failed");
     butLbl = "Turn On";
     color = "gray";
   }
@@ -265,7 +334,7 @@ void initpostForms(void) {
       <table>\
       <tr><td><label for=\"password\">Password: </label></td>\
       <td><input type=\"password\" id=\"password\" name=\"password\" value=\"\" required></td></tr>\
-      <tr><td><label for=id=\"delay\">Delay: </label></td> \
+      <tr><td><label for=\"delay\">Delay: </label></td> \
       <td align=\"right\"><select id=\"delay\" name=\"delay\">\
         <option value=\"50\">50ms</option>\
         <option value=\"100\">100ms</option>\
@@ -281,38 +350,40 @@ void initpostForms(void) {
         <option value=\"60000\">1m</option>\
         <option value=\"3600000\">1h</option>\
       </select></td></tr>\
-      <tr><td align=\"right\"><span class=\"dot"+color+"\"></span></td>\
-      <td align=\"right\"><input type=\"submit\" value=\"" + butLbl + "\"></td></tr>\
+      <tr><td><span class=\"dot"
+              + color + "\"></span></td>\
+      <td align=\"right\"><input type=\"submit\" value=\""
+              + butLbl + "\"></td></tr>\
       </table>\
       </form>\
       <form method=\"post\" enctype=\"application/x-www-form-urlencoded\" action=\"/update/\">\
       <table>\
-      <tr><td><label for=\"password\">Password: </label></td>\
-      <td><input type=\"password\" id=\"password\" name=\"password\" value=\"\" required></td></tr>\
-      <tr><td><label for=id=\"delay\">Firmware: </label></td> \
+      <tr><td><label for=\"pswupd\">Password: </label></td>\
+      <td><input type=\"password\" id=\"pswupd\" name=\"pswupd\" value=\"\" required></td></tr>\
+      <tr><td><label for=\"firmware\">Firmware: </label></td> \
       <td align=\"right\"><select id=\"firmware\" name=\"firmware\">\
       <option value=\"reset\">Reset</option>";
 
   WiFiClient client;
   HTTPClient http;
 
-  Serial.print("[HTTP] begin...\n");
+  //Serial.print("[HTTP] begin...\n");
   if (http.begin(client, FIRMWARE_FOLDER)) {  // HTTP
 
 
-    Serial.print("[HTTP] GET...\n");
+    //Serial.print("[HTTP] GET...\n");
     // start connection and send HTTP header
     int httpCode = http.GET();
 
     // httpCode will be negative on error
     if (httpCode > 0) {
       // HTTP header has been send and Server response header has been handled
-      Serial.printf("[HTTP] GET... code: %d\n", httpCode);
+      //Serial.printf("[HTTP] GET... code: %d\n", httpCode);
 
       // file found at server
       if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY) {
         String payload = http.getString();
-        Serial.println(payload);
+        //Serial.println(payload);
 
         unsigned long count;
 
@@ -335,6 +406,8 @@ void initpostForms(void) {
   }
 
   postForms += "</select></td></tr>\
+    <tr><td><label for=\"alldev\">All devices: </label></td>\
+    <td><input type=\"checkbox\" id=\"alldev\" name=\"alldev\" value=\"yes\"></td></tr> \
     <tr><td></td><td align=\"right\"><input type=\"submit\" value=\"Reset/Update\"></td></tr>\
     </table>\
     </form>";
@@ -352,18 +425,18 @@ void setup(void) {
 
   // Register multi WiFi networks
   for (int i = 0; i < numssisds; i++) {
-    Serial.println(ssids[i]);
+    //Serial.println(ssids[i]);
     wifiMulti.addAP(ssids[i], pass);
   }
 
   Serial.println("Connecting...");
   if (wifiMulti.run(connectTimeoutMs) == WL_CONNECTED) {
     ssid = WiFi.SSID();
-    device = WiFi.localIP().toString();
-    Serial.println(String("Connected: ") + ssid + " - " + device);
+    deviceip = WiFi.localIP().toString();
+    Serial.println(String("Connected: ") + ssid + " - " + deviceip);
 
     for (int i = 0; i < numpcs; i++) {
-      if (device.equals(pcs[i][0])) {
+      if (deviceip.equals(pcs[i][0])) {
         device = pcs[i][1];
         serverip.fromString(pcs[i][4]);
         if (pcs[i][3] == "r") {
@@ -437,6 +510,7 @@ void setup(void) {
     server.on("/", handleRoot);
     server.on("/update/", handleUpdate);
     server.on("/switch/", handleSwitch);
+    server.on("/remote/", handleRemote);
     server.onNotFound(handleNotFound);
     server.begin();
   } else {
