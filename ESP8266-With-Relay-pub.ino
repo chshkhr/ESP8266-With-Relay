@@ -78,6 +78,7 @@ BLYNK_WRITE(V0) {
 
 void handleRoot() {
   digitalWrite(led, 1);
+  initpostForms();
   server.send(200, "text/html", top + postForms + bot);
   digitalWrite(led, 0);
 }
@@ -405,7 +406,7 @@ void setup(void) {
           + device + "</h1>" + ssid + "<br>\
         <div>";
 
-    initpostForms();
+    //initpostForms();
 
     server.on("/", handleRoot);
     server.on("/update/", handleUpdate);
@@ -420,15 +421,8 @@ void setup(void) {
   }
 }
 
-int i = 0;
-
 void loop(void) {
   if (WiFi.status() == WL_CONNECTED) {
-    i++;
-    if (i >= 1000) {
-      initpostForms();
-      i == 0;
-    }
     server.handleClient();
 #ifdef BLYNK
     if (blynk) {
