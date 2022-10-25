@@ -61,7 +61,8 @@ const String bot = "\
   </body>\
 </html>";
 
-String postForms;
+String postFormRoot;
+String postFormUpdate;
 
 #ifdef BLYNK
 BLYNK_WRITE(V0) {
@@ -76,10 +77,18 @@ BLYNK_WRITE(V0) {
 
 void handleRoot() {
   digitalWrite(led, 1);
-  initpostForms();
-  server.send(200, "text/html", top + postForms + bot);
+  initpostFormRoot();
+  server.send(200, "text/html", top + postFormRoot + bot);
   digitalWrite(led, 0);
 }
+
+void handleUpdForm() {
+  digitalWrite(led, 1);
+  initpostFormUpdate();
+  server.send(200, "text/html", top + postFormUpdate + bot);
+  digitalWrite(led, 0);
+}
+
 
 void update_started() {
   Serial.println("CALLBACK:  HTTP update process started");
@@ -307,7 +316,7 @@ void match_callback(const char* match,          // matching string (not null-ter
       //Serial.println(cap);
       String s(cap);
       if (s.endsWith(".bin")) {
-        postForms += "<option value=\"" + s + "\">" + s + "</option>";
+        postFormUpdate += "<option value=\"" + s + "\">" + s + "</option>";
       }
     }
 
@@ -315,7 +324,7 @@ void match_callback(const char* match,          // matching string (not null-ter
 
 }  // end of match_callback
 
-void initpostForms(void) {
+void initpostFormRoot(void) {
   String butLbl, color;
 
   Serial.print("Ping ");
@@ -330,7 +339,7 @@ void initpostForms(void) {
     color = "gray";
   }
 
-  postForms = "<form method=\"post\" enctype=\"application/x-www-form-urlencoded\" action=\"/switch/\">\
+  postFormRoot = "<form method=\"post\" enctype=\"application/x-www-form-urlencoded\" action=\"/switch/\">\
       <table>\
       <tr><td><label for=\"password\">Password: </label></td>\
       <td><input type=\"password\" id=\"password\" name=\"password\" value=\"\" required></td></tr>\
@@ -351,12 +360,16 @@ void initpostForms(void) {
         <option value=\"3600000\">1h</option>\
       </select></td></tr>\
       <tr><td><span class=\"dot"
-              + color + "\"></span></td>\
+                 + color + "\"></span></td>\
       <td align=\"right\"><input type=\"submit\" value=\""
-              + butLbl + "\"></td></tr>\
+                 + butLbl + "\"></td></tr>\
       </table>\
       </form>\
-      <form method=\"post\" enctype=\"application/x-www-form-urlencoded\" action=\"/update/\">\
+      <a href=\"/updform/\">Update firmware</a>";
+}
+
+void initpostFormUpdate(void) {
+  postFormUpdate = "<form method=\"post\" enctype=\"application/x-www-form-urlencoded\" action=\"/update/\">\
       <table>\
       <tr><td><label for=\"pswupd\">Password: </label></td>\
       <td><input type=\"password\" id=\"pswupd\" name=\"pswupd\" value=\"\" required></td></tr>\
@@ -405,12 +418,13 @@ void initpostForms(void) {
     Serial.printf("[HTTP} Unable to connect\n");
   }
 
-  postForms += "</select></td></tr>\
+  postFormUpdate += "</select></td></tr>\
     <tr><td><label for=\"alldev\">All devices: </label></td>\
     <td><input type=\"checkbox\" id=\"alldev\" name=\"alldev\" value=\"yes\"></td></tr> \
     <tr><td></td><td align=\"right\"><input type=\"submit\" value=\"Reset/Update\"></td></tr>\
     </table>\
-    </form>";
+    </form>\
+    <a href=\"/\">Switcher</a>";
 }
 
 void setup(void) {
@@ -505,9 +519,8 @@ void setup(void) {
           + device + "</h1>" + ssid + "<br>\
         <div>";
 
-    //initpostForms();
-
     server.on("/", handleRoot);
+    server.on("/updform/", handleUpdForm);
     server.on("/update/", handleUpdate);
     server.on("/switch/", handleSwitch);
     server.on("/remote/", handleRemote);
