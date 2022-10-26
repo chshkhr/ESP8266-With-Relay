@@ -1,3 +1,5 @@
+#define SKETCH_VERSION "1.0.7TG"
+
 //#define L_REVERSE
 #define BLYNK
 
@@ -30,17 +32,39 @@ int L1 = 1;
 #include <ESP8266httpUpdate.h>
 #include <Regexp.h>
 
+#define TELEGRAM
+#ifdef TELEGRAM
+#include <AsyncTelegram2.h>
+
+// Timezone definition
+#include <time.h>
+#define MYTZ "CET-1CEST,M3.5.0,M10.5.0/3"
+
+BearSSL::WiFiClientSecure clientsec;
+BearSSL::Session session;
+BearSSL::X509List certificate(telegram_cert);
+
+AsyncTelegram2 myBot(clientsec);
+
+char token[50];
+int64_t userid = 123456789;
+bool tgavail;
+
+// Name of public channel (your bot must be in admin group)
+char* channel = "@YorChannel";
+#endif
+
 ESP8266WiFiMulti wifiMulti;
 
 const int numssisds = 5;
 const char* ssids[numssisds] = { "WiFi-AP1", "WiFi-AP2", "WiFi-AP3" };
 const char* pass = "your wifi password";
 const int numpcs = 4;
-const char* pcs[numpcs][5] = {
-  { "192.168.0.193", "PC name 1", "BLYNK_AUTH_TOKEN_1", "d", "192.168.0.4" },
-  { "192.168.0.194", "PC name 2", "BLYNK_AUTH_TOKEN_2", "d", "192.168.0.34" },
-  { "192.168.0.195", "PC name 3 (local only)", "", "r", "192.168.0.50" },
-  { "192.168.0.196", "PC name 4 (local only)", "", "r", "192.168.0.3" }
+const char* pcs[numpcs][6] = {
+  { "192.168.0.193", "PC name 1", "BLYNK_AUTH_TOKEN_1", "d", "192.168.0.4", "telegram Token 1" },
+  { "192.168.0.194", "PC name 2", "BLYNK_AUTH_TOKEN_2", "d", "192.168.0.34", "telegram Token 2" },
+  { "192.168.0.195", "PC name 3 (local only)", "", "r", "192.168.0.50", "telegram Token 3" },
+  { "192.168.0.196", "PC name 4 (local only)", "", "r", "192.168.0.3", "telegram Token 4" }
 };
 
 String ssid;
@@ -155,6 +179,22 @@ void updateOthers(String firmware) {
   }
 };
 
+#ifdef TELEGRAM
+void tgChannelSend(String s) {
+  if (tgavail) {
+    String message;
+    message += "@";
+    message += myBot.getBotName();
+    message += " (";
+    message += device;
+    message += "):\n";
+    message += s;
+    Serial.println(message);
+    myBot.sendToChannel(channel, message, true);
+  }
+}
+#endif
+
 void update(String firmware) {
   Serial.print("Update with ");
   Serial.print(firmware);
@@ -169,11 +209,19 @@ void update(String firmware) {
   ESPhttpUpdate.onProgress(update_progress);
   ESPhttpUpdate.onError(update_error);
 
+#ifdef TELEGRAM
+  tgChannelSend(firmware);
+#endif
+
   t_httpUpdate_return ret = ESPhttpUpdate.update(client, FIRMWARE_FOLDER + firmware);
 
   switch (ret) {
     case HTTP_UPDATE_FAILED:
+#ifdef TELEGRAM
+      tgChannelSend(ESPhttpUpdate.getLastErrorString().c_str());
+#else      
       Serial.printf("HTTP_UPDATE_FAILD Error (%d): %s\n", ESPhttpUpdate.getLastError(), ESPhttpUpdate.getLastErrorString().c_str());
+#endif
       resetFunc();
       break;
 
@@ -280,6 +328,10 @@ void handleSwitch() {
     message += bot;
     server.send(200, "text/html", message);
     digitalWrite(led, 0);
+
+#ifdef TELEGRAM
+    tgChannelSend("Switch");
+#endif
   }
 }
 
@@ -434,6 +486,8 @@ void setup(void) {
   digitalWrite(led, 0);
   Serial.begin(115200);
 
+  Serial.print("Version: " SKETCH_VERSION);
+
   // Set WiFi to station mode
   WiFi.mode(WIFI_STA);
 
@@ -460,6 +514,13 @@ void setup(void) {
         pinMode(pin, OUTPUT);
         digitalWrite(pin, L1);
         digitalWrite(pin, L0);
+
+#ifdef TELEGRAM
+        tgavail = strlen(pcs[i][5]) > 0;
+        if (tgavail) {
+          String(pcs[i][5]).toCharArray(token, strlen(pcs[i][5]) + 1);
+        }
+#endif
 
 #ifdef BLYNK
         String auth = pcs[i][2];
@@ -516,7 +577,7 @@ void setup(void) {
       </head>\
       <body>\
         <h1>"
-          + device + "</h1>" + ssid + "<br>\
+          + device + "</h1>" + ssid + "<br><small>" SKETCH_VERSION "</small><br>\
         <div>";
 
     server.on("/", handleRoot);
@@ -526,6 +587,32 @@ void setup(void) {
     server.on("/remote/", handleRemote);
     server.onNotFound(handleNotFound);
     server.begin();
+
+#ifdef TELEGRAM
+    if (tgavail) {
+      // Sync time with NTP, to check properly Telegram certificate
+      configTime(MYTZ, "time.google.com", "time.windows.com", "pool.ntp.org");
+      //Set certficate, session and some other base client properies
+      clientsec.setSession(&session);
+      clientsec.setTrustAnchors(&certificate);
+      clientsec.setBufferSizes(1024, 1024);
+      // Set the Telegram bot properies
+      myBot.setUpdateTime(2000);
+      myBot.setTelegramToken(token);
+
+      // Check if all things are ok
+      Serial.print("\nTest Telegram connection... ");
+      myBot.begin() ? Serial.println("OK") : Serial.println("NOK");
+
+      char welcome_msg[128];
+      snprintf(welcome_msg, 128, "%s\nBOT @%s online", device, myBot.getBotName());
+
+      // Send a message to specific user who has started your bot
+      //myBot.sendTo(userid, welcome_msg);
+      tgChannelSend(welcome_msg);
+    }
+#endif
+
   } else {
     Serial.println("Can't connect to Network");
     delay(5000);
@@ -540,6 +627,24 @@ void loop(void) {
 #ifdef BLYNK
     if (blynk) {
       Blynk.run();
+    }
+#endif
+
+#ifdef TELEGRAM
+    if (tgavail) {
+      // local variable to store telegram message data
+      TBMessage msg;
+
+      // if there is an incoming message...
+      if (myBot.getNewMessage(msg)) {
+        // Send a message to your public channel
+
+        tgChannelSend(msg.text);
+
+        // echo the received message
+        msg.text = device + ": " + msg.text;
+        myBot.sendMessage(msg, msg.text);
+      }
     }
 #endif
   } else {
