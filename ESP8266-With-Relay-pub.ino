@@ -1,6 +1,6 @@
 #define TELEGRAM
 #define BLYNK
-#define VERSION "1.0.8"
+#define VERSION "1.0.9"
 
 #ifdef TELEGRAM
 #define SKETCH_VERSION VERSION "TG"
@@ -223,19 +223,23 @@ void update(String firmware) {
     case HTTP_UPDATE_FAILED:
 #ifdef TELEGRAM
       tgChannelSend(ESPhttpUpdate.getLastErrorString().c_str());
-#else      
+#else
       Serial.printf("HTTP_UPDATE_FAILD Error (%d): %s\n", ESPhttpUpdate.getLastError(), ESPhttpUpdate.getLastErrorString().c_str());
 #endif
-      resetFunc();
+      //resetFunc();
       break;
 
     case HTTP_UPDATE_NO_UPDATES:
       Serial.println("HTTP_UPDATE_NO_UPDATES");
-      resetFunc();
+      //resetFunc();
       break;
 
     case HTTP_UPDATE_OK:
+#ifdef TELEGRAM
+      tgChannelSend("HTTP_UPDATE_OK");
+#else
       Serial.println("HTTP_UPDATE_OK");
+#endif
       break;
   }
 }
@@ -301,6 +305,15 @@ void handleUpdate() {
   }
 }
 
+void switcher(int waitmsec) {
+#ifdef TELEGRAM
+  tgChannelSend(String("Switch ") + waitmsec);
+#endif
+  digitalWrite(pin, L1);
+  delay(waitmsec);
+  digitalWrite(pin, L0);
+}
+
 void handleSwitch() {
   if (server.method() != HTTP_POST) {
     digitalWrite(led, 1);
@@ -321,9 +334,7 @@ void handleSwitch() {
     if (server.arg(0).equals(WEB_PASSWORD)) {
       //message += "<p style=\"background-color:MediumSeaGreen;\">SUCCESS</p>";
       message += "<p>SUCCESS</p>";
-      digitalWrite(pin, L1);
-      delay(server.arg(1).toInt());
-      digitalWrite(pin, L0);
+      switcher(server.arg(1).toInt());
     } else {
       message += "<p style=\"background-color:Tomato;\">FAIL</p>";
     }
@@ -332,10 +343,6 @@ void handleSwitch() {
     message += bot;
     server.send(200, "text/html", message);
     digitalWrite(led, 0);
-
-#ifdef TELEGRAM
-    tgChannelSend("Switch "+server.arg(1));
-#endif
   }
 }
 
@@ -490,7 +497,8 @@ void setup(void) {
   digitalWrite(led, 0);
   Serial.begin(115200);
 
-  Serial.print("Version: " SKETCH_VERSION);
+  Serial.print("Version: "
+               "\n");
 
   // Set WiFi to station mode
   WiFi.mode(WIFI_STA);
@@ -608,8 +616,8 @@ void setup(void) {
       Serial.print("\nTest Telegram connection... ");
       myBot.begin() ? Serial.println("OK") : Serial.println("NOK");
 
-      char welcome_msg[128];
-      snprintf(welcome_msg, 128, "%s\nBOT @%s online", device, myBot.getBotName());
+      //char welcome_msg[128];
+      //snprintf(welcome_msg, 128, "%s\nBOT @%s online", device, myBot.getBotName());
 
       // Send a message to specific user who has started your bot
       //myBot.sendTo(userid, welcome_msg);
@@ -641,13 +649,32 @@ void loop(void) {
 
       // if there is an incoming message...
       if (myBot.getNewMessage(msg)) {
-        // Send a message to your public channel
 
-        tgChannelSend(msg.text);
+        int l = msg.text.length() + 1;
+        char buf[l];
+        msg.text.toCharArray(buf, l);
 
-        // echo the received message
-        msg.text = device + ": " + msg.text;
-        myBot.sendMessage(msg, msg.text);
+        char* command = strtok(buf, " ");
+        if (strcmp(command, "switch") == 0) {
+          String wt = strtok(NULL, " ");
+          myBot.sendMessage(msg, "Execute Switch " + wt);
+          switcher(wt.toInt());
+          /*} else if ((strcmp(command, "reset") == 0)) {
+          myBot.getNewMessage(msg);
+          tgChannelSend("Reseting...");
+          resetFunc();
+        } else if ((strcmp(command, "update") == 0)) {
+          tgChannelSend("Updating...");
+          char* fn = strtok(NULL, " ");
+          update(fn);
+        } else if ((strcmp(command, "updateall") == 0)) {
+          tgChannelSend("Updating all...");
+          char* fn = strtok(NULL, " ");
+          updateOthers(fn);
+          update(fn);*/
+        } else {
+          myBot.sendMessage(msg, String("Unknown: ") + command);
+        }
       }
     }
 #endif
