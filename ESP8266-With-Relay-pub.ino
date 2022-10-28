@@ -1,7 +1,12 @@
-#define SKETCH_VERSION "1.0.7TG"
-
-//#define L_REVERSE
+#define TELEGRAM
 #define BLYNK
+#define VERSION "1.0.8"
+
+#ifdef TELEGRAM
+#define SKETCH_VERSION VERSION "TG"
+#else
+#define SKETCH_VERSION VERSION
+#endif
 
 #ifdef BLYNK
 #define BLYNK_TEMPLATE_ID "TMPLwvNcgN8Z"
@@ -32,7 +37,6 @@ int L1 = 1;
 #include <ESP8266httpUpdate.h>
 #include <Regexp.h>
 
-#define TELEGRAM
 #ifdef TELEGRAM
 #include <AsyncTelegram2.h>
 
@@ -330,7 +334,7 @@ void handleSwitch() {
     digitalWrite(led, 0);
 
 #ifdef TELEGRAM
-    tgChannelSend("Switch");
+    tgChannelSend("Switch "+server.arg(1));
 #endif
   }
 }
@@ -609,7 +613,7 @@ void setup(void) {
 
       // Send a message to specific user who has started your bot
       //myBot.sendTo(userid, welcome_msg);
-      tgChannelSend(welcome_msg);
+      tgChannelSend("Online now");
     }
 #endif
 
