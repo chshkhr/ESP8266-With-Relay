@@ -1,6 +1,6 @@
 #define TELEGRAM
 #define BLYNK
-#define VERSION "1.0.14"
+#define VERSION "1.0.16"
 
 #ifdef TELEGRAM
 #define SKETCH_VERSION VERSION " Tg"
@@ -205,9 +205,11 @@ void updateOtherDevice(String devip, String firmware) {
   }
 }
 
+int iListIndex = -1;
+
 void updateOthers(String firmware) {
   for (int i = 0; i < numpcs; i++) {
-    if (!deviceip.equals(pcs[i][0])) {
+    if (i != iListIndex) {
       Serial.println(deviceip + " is sending update request to " + pcs[i][0]);
       updateOtherDevice(pcs[i][0], firmware);
     }
@@ -548,6 +550,7 @@ void setup(void) {
 
     for (int i = 0; i < numpcs; i++) {
       if (deviceip.equals(pcs[i][0])) {
+        iListIndex = i;
         device = pcs[i][1];
         serverip.fromString(pcs[i][4]);
         if (pcs[i][3] == "r") {
@@ -652,7 +655,7 @@ void setup(void) {
 
       // Send a message to specific user who has started your bot
       //myBot.sendTo(userid, welcome_msg);
-      tgChannelSend("Online now");
+      tgChannelSend(SKETCH_VERSION " Online now");
     }
 #endif
 
@@ -723,7 +726,7 @@ void loop(void) {
               s += " - FAIL";              
             }
             ip.fromString(pcs[i][0]);
-            if (Ping.ping(ip)) {
+            if (i == iListIndex || Ping.ping(ip)) {
               s += " bot online\n";
             } else {
               s += " bot offline\n";              
