@@ -1,9 +1,9 @@
 #define TELEGRAM
 #define BLYNK
-#define VERSION "1.0.9"
+#define VERSION "1.0.14"
 
 #ifdef TELEGRAM
-#define SKETCH_VERSION VERSION "TG"
+#define SKETCH_VERSION VERSION " Tg"
 #else
 #define SKETCH_VERSION VERSION
 #endif
@@ -134,7 +134,38 @@ void update_error(int err) {
   Serial.printf("CALLBACK:  HTTP update fatal error code %d\n", err);
 }
 
-void (*resetFunc)(void) = 0;  //declare reset function @ address 0
+//void (*restartFunc)(void) = 0;  //declare restart function @ address 0
+
+void doRestart() {
+  do_restart = false;
+#ifdef TELEGRAM
+  tgChannelSend("Restarting...");
+  // Wait until bot synced with telegram to prevent cyclic reboot
+  while (!myBot.noNewMessage()) {
+    Serial.print(".");
+    delay(100);
+  }
+  Serial.println("Restart in 5 seconds...");
+  delay(5000);
+#endif
+  ESP.restart();
+}
+
+void doUpdate() {
+  do_update = false;
+#ifdef TELEGRAM
+  tgChannelSend("Updating...");
+  // Wait until bot synced with telegram to prevent cyclic reboot
+  while (!myBot.noNewMessage()) {
+    Serial.print(".");
+    delay(100);
+  }
+  Serial.println("Update in 5 seconds...");
+  delay(5000);
+#endif
+  update(fwfn);
+}
+
 
 void updateOtherDevice(String devip, String firmware) {
   if (WiFi.status() == WL_CONNECTED) {
@@ -226,12 +257,12 @@ void update(String firmware) {
 #else
       Serial.printf("HTTP_UPDATE_FAILD Error (%d): %s\n", ESPhttpUpdate.getLastError(), ESPhttpUpdate.getLastErrorString().c_str());
 #endif
-      //resetFunc();
+      do_restart = true;
       break;
 
     case HTTP_UPDATE_NO_UPDATES:
       Serial.println("HTTP_UPDATE_NO_UPDATES");
-      //resetFunc();
+      do_restart = true;
       break;
 
     case HTTP_UPDATE_OK:
@@ -271,8 +302,8 @@ void handleUpdate() {
     if (pswcorrect) {
       //message += "<p style=\"background-color:MediumSeaGreen;\">SUCCESS</p>";
 
-      if (server.arg("firmware").equals("reset")) {
-        message += "<p>RESETING</p>";
+      if (server.arg("firmware").equals("restart")) {
+        message += "<p>Restarting...</p>";
       } else {
 
         if (server.arg("alldev").equals("yes")) {
@@ -299,8 +330,8 @@ void handleUpdate() {
     server.send(200, "text/html", message);
     digitalWrite(led, 0);
 
-    if (pswcorrect && server.arg(1).equals("reset")) {
-      resetFunc();
+    if (pswcorrect && server.arg(1).equals("restart")) {
+      do_restart = true;
     }
   }
 }
@@ -438,7 +469,7 @@ void initpostFormUpdate(void) {
       <td><input type=\"password\" id=\"pswupd\" name=\"pswupd\" value=\"\" required></td></tr>\
       <tr><td><label for=\"firmware\">Firmware: </label></td> \
       <td align=\"right\"><select id=\"firmware\" name=\"firmware\">\
-      <option value=\"reset\">Reset</option>";
+      <option value=\"restart\">Restart</option>";
 
   WiFiClient client;
   HTTPClient http;
@@ -484,7 +515,7 @@ void initpostFormUpdate(void) {
   postFormUpdate += "</select></td></tr>\
     <tr><td><label for=\"alldev\">All devices: </label></td>\
     <td><input type=\"checkbox\" id=\"alldev\" name=\"alldev\" value=\"yes\"></td></tr> \
-    <tr><td></td><td align=\"right\"><input type=\"submit\" value=\"Reset/Update\"></td></tr>\
+    <tr><td></td><td align=\"right\"><input type=\"submit\" value=\"Restart/Update\"></td></tr>\
     </table>\
     </form>\
     <a href=\"/\">Switcher</a>";
@@ -628,12 +659,18 @@ void setup(void) {
   } else {
     Serial.println("Can't connect to Network");
     delay(5000);
-    Serial.println("Reset...");
-    resetFunc();
+    Serial.println("Restart...");
+    do_restart = true;
   }
 }
 
 void loop(void) {
+  if (do_restart)
+    doRestart();
+
+  if (do_update)
+    doUpdate();
+
   if (WiFi.status() == WL_CONNECTED) {
     server.handleClient();
 #ifdef BLYNK
@@ -654,24 +691,60 @@ void loop(void) {
         char buf[l];
         msg.text.toCharArray(buf, l);
 
+        //msg.free();
+
         char* command = strtok(buf, " ");
         if (strcmp(command, "switch") == 0) {
           String wt = strtok(NULL, " ");
-          myBot.sendMessage(msg, "Execute Switch " + wt);
-          switcher(wt.toInt());
-          /*} else if ((strcmp(command, "reset") == 0)) {
-          myBot.getNewMessage(msg);
-          tgChannelSend("Reseting...");
-          resetFunc();
+          int dl = wt.toInt();
+          if (dl == 0) {
+            dl = bldelay;
+          }
+          myBot.sendMessage(msg, String("Execute Switch ") + String(dl));
+          switcher(dl);
+        } else if ((strcmp(command, "ping") == 0)) {
+          String s = String("Ping ") + serverip.toString();
+          myBot.sendMessage(msg, s);
+          if (Ping.ping(serverip)) {
+            tgChannelSend(s + " SUCCESS");
+          } else {
+            tgChannelSend(s + " FAIL");
+          }
+        } else if ((strcmp(command, "pingall") == 0)) {
+          myBot.sendMessage(msg, "Ping all...");
+          IPAddress ip;
+          String s = "";
+          for (int i = 0; i < numpcs; i++) {          
+            ip.fromString(pcs[i][4]);
+            s += pcs[i][1];
+            if (Ping.ping(ip)) {
+              s += " - SUCCESS";
+            } else {
+              s += " - FAIL";              
+            }
+            ip.fromString(pcs[i][0]);
+            if (Ping.ping(ip)) {
+              s += " bot online\n";
+            } else {
+              s += " bot offline\n";              
+            }
+          }
+          myBot.sendMessage(msg, s);
+          tgChannelSend(s);
+        } else if ((strcmp(command, "restart") == 0)) {
+          myBot.sendMessage(msg, "Restarting...");
+          do_restart = true;
         } else if ((strcmp(command, "update") == 0)) {
-          tgChannelSend("Updating...");
-          char* fn = strtok(NULL, " ");
-          update(fn);
+          myBot.sendMessage(msg, "Updating...");
+          fwfn = strtok(NULL, " ");
+          do_update = true;
         } else if ((strcmp(command, "updateall") == 0)) {
-          tgChannelSend("Updating all...");
-          char* fn = strtok(NULL, " ");
-          updateOthers(fn);
-          update(fn);*/
+          String s = "Updating all...";
+          tgChannelSend(s);
+          myBot.sendMessage(msg, s);
+          fwfn = strtok(NULL, " ");
+          updateOthers(fwfn);
+          do_update = true;
         } else {
           myBot.sendMessage(msg, String("Unknown: ") + command);
         }
@@ -679,7 +752,7 @@ void loop(void) {
     }
 #endif
   } else {
-    Serial.println("Connection lost. Reset...");
-    resetFunc();
+    Serial.println("Connection lost. Restart...");
+    do_restart = true;
   }
 }
