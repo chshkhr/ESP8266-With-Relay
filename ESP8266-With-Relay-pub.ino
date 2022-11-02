@@ -1,6 +1,6 @@
 #define TELEGRAM
 #define BLYNK
-#define VERSION "1.0.16"
+#define VERSION "1.0.18"
 
 #ifdef TELEGRAM
 #define SKETCH_VERSION VERSION " Tg"
@@ -134,7 +134,24 @@ void update_error(int err) {
   Serial.printf("CALLBACK:  HTTP update fatal error code %d\n", err);
 }
 
-//void (*restartFunc)(void) = 0;  //declare restart function @ address 0
+void (*restartFunc)(void) = 0;  //declare restart function @ address 0
+
+#ifdef TELEGRAM
+void tgChannelSend(String s) {
+  if (tgavail) {
+    String message;
+    message += "@";
+    message += myBot.getBotName();
+    message += " (";
+    message += device;
+    message += "):\n";
+    message += s;
+    Serial.println(message);
+    myBot.sendToChannel(channel, message, true);
+  }
+}
+#endif
+
 
 void doRestart() {
   do_restart = false;
@@ -215,22 +232,6 @@ void updateOthers(String firmware) {
     }
   }
 };
-
-#ifdef TELEGRAM
-void tgChannelSend(String s) {
-  if (tgavail) {
-    String message;
-    message += "@";
-    message += myBot.getBotName();
-    message += " (";
-    message += device;
-    message += "):\n";
-    message += s;
-    Serial.println(message);
-    myBot.sendToChannel(channel, message, true);
-  }
-}
-#endif
 
 void update(String firmware) {
   Serial.print("Update with ");
@@ -694,68 +695,67 @@ void loop(void) {
         char buf[l];
         msg.text.toCharArray(buf, l);
 
-        //msg.free();
-
         char* command = strtok(buf, " ");
+        String s = "";
         if (strcmp(command, "switch") == 0) {
-          String wt = strtok(NULL, " ");
-          int dl = wt.toInt();
+          s = strtok(NULL, " ");
+          int dl = s.toInt();
           if (dl == 0) {
             dl = bldelay;
           }
-          myBot.sendMessage(msg, String("Execute Switch ") + String(dl));
+          s = "Switch " + dl;
           switcher(dl);
         } else if ((strcmp(command, "ping") == 0)) {
-          String s = String("Ping ") + serverip.toString();
+          s = String("Ping ") + serverip.toString();
           myBot.sendMessage(msg, s);
           if (Ping.ping(serverip)) {
-            tgChannelSend(s + " SUCCESS");
+            s += " SUCCESS";
           } else {
-            tgChannelSend(s + " FAIL");
+            s += " FAIL";
           }
+          tgChannelSend(s);      
         } else if ((strcmp(command, "pingall") == 0)) {
-          myBot.sendMessage(msg, "Ping all...");
+          myBot.sendMessage(msg, "Pinging all...");
           IPAddress ip;
-          String s = "";
-          for (int i = 0; i < numpcs; i++) {          
+          for (int i = 0; i < numpcs; i++) {
             ip.fromString(pcs[i][4]);
             s += pcs[i][1];
             if (Ping.ping(ip)) {
               s += " - SUCCESS";
             } else {
-              s += " - FAIL";              
+              s += " - FAIL";
             }
             ip.fromString(pcs[i][0]);
             if (i == iListIndex || Ping.ping(ip)) {
               s += " bot online\n";
             } else {
-              s += " bot offline\n";              
+              s += " bot offline\n";
             }
           }
-          myBot.sendMessage(msg, s);
           tgChannelSend(s);
         } else if ((strcmp(command, "restart") == 0)) {
-          myBot.sendMessage(msg, "Restarting...");
+          s = "Restarting...";
+          tgChannelSend(s);
           do_restart = true;
         } else if ((strcmp(command, "update") == 0)) {
-          myBot.sendMessage(msg, "Updating...");
+          s = "Updating...";
           fwfn = strtok(NULL, " ");
           do_update = true;
         } else if ((strcmp(command, "updateall") == 0)) {
-          String s = "Updating all...";
-          tgChannelSend(s);
-          myBot.sendMessage(msg, s);
+          s = "Updating all...";
           fwfn = strtok(NULL, " ");
           updateOthers(fwfn);
           do_update = true;
         } else {
-          myBot.sendMessage(msg, String("Unknown: ") + command);
+          s = String("Unknown: ") + command;
         }
+        myBot.sendMessage(msg, s);
       }
     }
 #endif
   } else {
     Serial.println("Connection lost. Restart...");
+    //restartFunc();
     do_restart = true;
   }
 }
