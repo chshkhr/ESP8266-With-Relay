@@ -1,6 +1,6 @@
 #define TELEGRAM
 #define BLYNK
-#define VERSION "1.0.18"
+#define VERSION "1.0.20"
 
 #ifdef TELEGRAM
 #define SKETCH_VERSION VERSION " Tg"
@@ -36,6 +36,10 @@ int L1 = 1;
 #include <ESP8266HTTPClient.h>
 #include <ESP8266httpUpdate.h>
 #include <Regexp.h>
+
+bool do_restart = false;
+bool do_update = false;
+String fwfn = "";
 
 #ifdef TELEGRAM
 #include <AsyncTelegram2.h>
@@ -713,7 +717,7 @@ void loop(void) {
           } else {
             s += " FAIL";
           }
-          tgChannelSend(s);      
+          tgChannelSend(s);
         } else if ((strcmp(command, "pingall") == 0)) {
           myBot.sendMessage(msg, "Pinging all...");
           IPAddress ip;
@@ -735,12 +739,14 @@ void loop(void) {
           tgChannelSend(s);
         } else if ((strcmp(command, "restart") == 0)) {
           s = "Restarting...";
-          tgChannelSend(s);
           do_restart = true;
         } else if ((strcmp(command, "update") == 0)) {
           s = "Updating...";
           fwfn = strtok(NULL, " ");
-          do_update = true;
+          do_update = fwfn != "";
+          if (!do_update) {
+            s = "Second param 'File name' is needed";
+          }
         } else if ((strcmp(command, "updateall") == 0)) {
           s = "Updating all...";
           fwfn = strtok(NULL, " ");
