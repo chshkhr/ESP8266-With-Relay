@@ -1,6 +1,6 @@
 #define TELEGRAM
 #define BLYNK
-#define VERSION "1.0.24"
+#define VERSION "1.0.25"
 
 #ifdef TELEGRAM
 #define SKETCH_VERSION VERSION " Tg"
@@ -669,7 +669,7 @@ void setup(void) {
 
       // Send a message to specific user who has started your bot
       //myBot.sendTo(userid, welcome_msg);
-      tgChannelSend(SKETCH_VERSION " Online now");
+      tgChannelSend(SKETCH_VERSION " Online " + deviceip + " via " + ssid);
     }
 #endif
 
