@@ -1,6 +1,6 @@
 #define TELEGRAM
 #define BLYNK
-#define VERSION "1.0.20"
+#define VERSION "1.0.24"
 
 #ifdef TELEGRAM
 #define SKETCH_VERSION VERSION " Tg"
@@ -142,7 +142,7 @@ void (*restartFunc)(void) = 0;  //declare restart function @ address 0
 
 #ifdef TELEGRAM
 void tgChannelSend(String s) {
-  if (tgavail) {
+  if (WiFi.status() == WL_CONNECTED && tgavail) {
     String message;
     message += "@";
     message += myBot.getBotName();
@@ -160,14 +160,16 @@ void tgChannelSend(String s) {
 void doRestart() {
   do_restart = false;
 #ifdef TELEGRAM
-  tgChannelSend("Restarting...");
-  // Wait until bot synced with telegram to prevent cyclic reboot
-  while (!myBot.noNewMessage()) {
-    Serial.print(".");
-    delay(100);
+  if (WiFi.status() == WL_CONNECTED) {
+    tgChannelSend("Restarting...");
+    // Wait until bot synced with telegram to prevent cyclic reboot
+    while (WiFi.status() == WL_CONNECTED && !myBot.noNewMessage()) {
+      Serial.print(".");
+      delay(100);
+    }
+    Serial.println("Restart in 5 seconds...");
+    delay(5000);
   }
-  Serial.println("Restart in 5 seconds...");
-  delay(5000);
 #endif
   ESP.restart();
 }
@@ -175,14 +177,16 @@ void doRestart() {
 void doUpdate() {
   do_update = false;
 #ifdef TELEGRAM
-  tgChannelSend("Updating...");
-  // Wait until bot synced with telegram to prevent cyclic reboot
-  while (!myBot.noNewMessage()) {
-    Serial.print(".");
-    delay(100);
+  if (WiFi.status() == WL_CONNECTED) {
+    tgChannelSend("Updating...");
+    // Wait until bot synced with telegram to prevent cyclic reboot
+    while (WiFi.status() == WL_CONNECTED && !myBot.noNewMessage()) {
+      Serial.print(".");
+      delay(100);
+    }
+    Serial.println("Update in 5 seconds...");
+    delay(5000);
   }
-  Serial.println("Update in 5 seconds...");
-  delay(5000);
 #endif
   update(fwfn);
 }
@@ -238,47 +242,53 @@ void updateOthers(String firmware) {
 };
 
 void update(String firmware) {
-  Serial.print("Update with ");
-  Serial.print(firmware);
-  Serial.println("...");
+  do_update = false;
+  if (WiFi.status() == WL_CONNECTED) {
 
-  WiFiClient client;
+    Serial.print("Update with ");
+    Serial.print(firmware);
+    Serial.println("...");
 
-  ESPhttpUpdate.setLedPin(LED_BUILTIN, LOW);
+    WiFiClient client;
 
-  ESPhttpUpdate.onStart(update_started);
-  ESPhttpUpdate.onEnd(update_finished);
-  ESPhttpUpdate.onProgress(update_progress);
-  ESPhttpUpdate.onError(update_error);
+    ESPhttpUpdate.setLedPin(LED_BUILTIN, LOW);
+
+    ESPhttpUpdate.onStart(update_started);
+    ESPhttpUpdate.onEnd(update_finished);
+    ESPhttpUpdate.onProgress(update_progress);
+    ESPhttpUpdate.onError(update_error);
 
 #ifdef TELEGRAM
-  tgChannelSend(firmware);
+    tgChannelSend(firmware);
 #endif
 
-  t_httpUpdate_return ret = ESPhttpUpdate.update(client, FIRMWARE_FOLDER + firmware);
+    t_httpUpdate_return ret = ESPhttpUpdate.update(client, FIRMWARE_FOLDER + firmware);
 
-  switch (ret) {
-    case HTTP_UPDATE_FAILED:
+    switch (ret) {
+      case HTTP_UPDATE_FAILED:
 #ifdef TELEGRAM
-      tgChannelSend(ESPhttpUpdate.getLastErrorString().c_str());
+        tgChannelSend(ESPhttpUpdate.getLastErrorString().c_str());
 #else
-      Serial.printf("HTTP_UPDATE_FAILD Error (%d): %s\n", ESPhttpUpdate.getLastError(), ESPhttpUpdate.getLastErrorString().c_str());
+        Serial.printf("HTTP_UPDATE_FAILD Error (%d): %s\n", ESPhttpUpdate.getLastError(), ESPhttpUpdate.getLastErrorString().c_str());
 #endif
-      do_restart = true;
-      break;
+        do_restart = true;
+        break;
 
-    case HTTP_UPDATE_NO_UPDATES:
-      Serial.println("HTTP_UPDATE_NO_UPDATES");
-      do_restart = true;
-      break;
+      case HTTP_UPDATE_NO_UPDATES:
+        Serial.println("HTTP_UPDATE_NO_UPDATES");
+        do_restart = true;
+        break;
 
-    case HTTP_UPDATE_OK:
+      case HTTP_UPDATE_OK:
 #ifdef TELEGRAM
-      tgChannelSend("HTTP_UPDATE_OK");
+        tgChannelSend("HTTP_UPDATE_OK");
 #else
-      Serial.println("HTTP_UPDATE_OK");
+        Serial.println("HTTP_UPDATE_OK");
 #endif
-      break;
+        break;
+    }
+  } else {
+    do_restart = true;
   }
 }
 
@@ -535,8 +545,7 @@ void setup(void) {
   digitalWrite(led, 0);
   Serial.begin(115200);
 
-  Serial.print("Version: "
-               "\n");
+  Serial.print("Version: " SKETCH_VERSION "\n");
 
   // Set WiFi to station mode
   WiFi.mode(WIFI_STA);
@@ -707,7 +716,7 @@ void loop(void) {
           if (dl == 0) {
             dl = bldelay;
           }
-          s = "Switch " + dl;
+          myBot.sendMessage(msg, String("Switch ") + dl);
           switcher(dl);
         } else if ((strcmp(command, "ping") == 0)) {
           s = String("Ping ") + serverip.toString();
@@ -715,7 +724,7 @@ void loop(void) {
           if (Ping.ping(serverip)) {
             s += " SUCCESS";
           } else {
-            s += " FAIL";
+            s += " fail";
           }
           tgChannelSend(s);
         } else if ((strcmp(command, "pingall") == 0)) {
@@ -727,13 +736,13 @@ void loop(void) {
             if (Ping.ping(ip)) {
               s += " - SUCCESS";
             } else {
-              s += " - FAIL";
+              s += " - fail";
             }
             ip.fromString(pcs[i][0]);
             if (i == iListIndex || Ping.ping(ip)) {
-              s += " bot online\n";
+              s += ", bot ONLINE\n";
             } else {
-              s += " bot offline\n";
+              s += ", bot offline\n";
             }
           }
           tgChannelSend(s);
