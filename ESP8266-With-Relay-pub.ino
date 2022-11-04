@@ -1,6 +1,6 @@
 #define TELEGRAM
 #define BLYNK
-#define VERSION "1.0.25"
+#define VERSION "1.0.26"
 
 #ifdef TELEGRAM
 #define SKETCH_VERSION VERSION " Tg"
@@ -716,7 +716,7 @@ void loop(void) {
           if (dl == 0) {
             dl = bldelay;
           }
-          myBot.sendMessage(msg, String("Switch ") + dl);
+          s = String("Switch ") + dl;
           switcher(dl);
         } else if ((strcmp(command, "ping") == 0)) {
           s = String("Ping ") + serverip.toString();
