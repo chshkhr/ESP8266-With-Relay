@@ -1,6 +1,6 @@
 #define TELEGRAM
 #define BLYNK
-#define VERSION "1.0.26"
+#define VERSION "1.0.29"
 
 #ifdef TELEGRAM
 #define SKETCH_VERSION VERSION " Tg"
@@ -108,6 +108,7 @@ BLYNK_WRITE(V0) {
 #endif
 
 void handleRoot() {
+  Serial.print("Root request\n");
   digitalWrite(led, 1);
   initpostFormRoot();
   server.send(200, "text/html", top + postFormRoot + bot);
@@ -115,12 +116,12 @@ void handleRoot() {
 }
 
 void handleUpdForm() {
+  Serial.print("UpdForm request\n");
   digitalWrite(led, 1);
   initpostFormUpdate();
   server.send(200, "text/html", top + postFormUpdate + bot);
   digitalWrite(led, 0);
 }
-
 
 void update_started() {
   Serial.println("CALLBACK:  HTTP update process started");
@@ -438,15 +439,20 @@ void match_callback(const char* match,          // matching string (not null-ter
 void initpostFormRoot(void) {
   String butLbl, color;
 
-  Serial.print("Ping ");
-  Serial.print(serverip);
-  if (Ping.ping(serverip)) {
-    Serial.println(" succesful");
-    butLbl = "Turn Off";
-    color = "red";
+  if (serverip.toString() != "(IP unset)") {
+    Serial.print("Ping ");
+    Serial.print(serverip);
+    if (Ping.ping(serverip)) {
+      Serial.println(" succesful");
+      butLbl = "Turn Off";
+      color = "red";
+    } else {
+      Serial.println(" failed");
+      butLbl = "Turn On";
+      color = "gray";
+    }
   } else {
-    Serial.println(" failed");
-    butLbl = "Turn On";
+    butLbl = "On-Off Relay";
     color = "gray";
   }
 
@@ -476,7 +482,8 @@ void initpostFormRoot(void) {
                  + butLbl + "\"></td></tr>\
       </table>\
       </form>\
-      <a href=\"/updform/\">Update firmware</a>";
+      <a href=\"/updform/\">Update Firmware</a>\
+      <a href=\"/pingall/\">Ping All</a>";
 }
 
 void initpostFormUpdate(void) {
@@ -560,6 +567,7 @@ void setup(void) {
   if (wifiMulti.run(connectTimeoutMs) == WL_CONNECTED) {
     ssid = WiFi.SSID();
     deviceip = WiFi.localIP().toString();
+    device = "Unknown";
     Serial.println(String("Connected: ") + ssid + " - " + deviceip);
 
     for (int i = 0; i < numpcs; i++) {
@@ -637,7 +645,10 @@ void setup(void) {
       </head>\
       <body>\
         <h1>"
-          + device + "</h1>" + ssid + "<br><small>" SKETCH_VERSION "</small><br>\
+          + device + "</h1>" + ssid + "<br>\
+          <small>" SKETCH_VERSION "<br>\
+          Server: "
+          + serverip.toString() + " </small><br>\
         <div>";
 
     server.on("/", handleRoot);
@@ -645,6 +656,7 @@ void setup(void) {
     server.on("/update/", handleUpdate);
     server.on("/switch/", handleSwitch);
     server.on("/remote/", handleRemote);
+    server.on("/pingall/", handlePingAll);
     server.onNotFound(handleNotFound);
     server.begin();
 
@@ -679,6 +691,57 @@ void setup(void) {
     Serial.println("Restart...");
     do_restart = true;
   }
+}
+
+String ping_all() {
+  String s = "";
+  IPAddress ip;
+  for (int i = 0; i < numpcs; i++) {
+    ip.fromString(pcs[i][4]);
+    s += pcs[i][1];
+    if (Ping.ping(ip)) {
+      s += " - SUCCESS";
+    } else {
+      s += " - fail";
+    }
+    ip.fromString(pcs[i][0]);
+    if (i == iListIndex || Ping.ping(ip)) {
+      s += ", bot ONLINE\n";
+    } else {
+      s += ", bot offline\n";
+    }
+  }
+  return s;
+}
+
+String ping_all_html() {
+  String s = "<table><tr><td></td><td>Server</td><td>Bot</td></tr>";
+  IPAddress ip;
+  for (int i = 0; i < numpcs; i++) {
+    s += "<tr><td>";
+    ip.fromString(pcs[i][4]);
+    s += pcs[i][1];
+    s += "</td><td><a href=http://";
+    s += pcs[i][4];
+    s += ">";
+    if (Ping.ping(ip)) {
+      s += "ONLINE";
+    } else {
+      s += "offline";
+    }
+    s += "</a></td><td><a href=http://";
+    s += pcs[i][0];
+    s += ">";
+    ip.fromString(pcs[i][0]);
+    if (i == iListIndex || Ping.ping(ip)) {
+      s += "ONLINE";
+    } else {
+      s += "offline";
+    }
+    s += "</a></td></tr>";
+  }
+  s += "</table>";
+  return s;
 }
 
 void loop(void) {
@@ -729,22 +792,7 @@ void loop(void) {
           tgChannelSend(s);
         } else if ((strcmp(command, "pingall") == 0)) {
           myBot.sendMessage(msg, "Pinging all...");
-          IPAddress ip;
-          for (int i = 0; i < numpcs; i++) {
-            ip.fromString(pcs[i][4]);
-            s += pcs[i][1];
-            if (Ping.ping(ip)) {
-              s += " - SUCCESS";
-            } else {
-              s += " - fail";
-            }
-            ip.fromString(pcs[i][0]);
-            if (i == iListIndex || Ping.ping(ip)) {
-              s += ", bot ONLINE\n";
-            } else {
-              s += ", bot offline\n";
-            }
-          }
+          s = ping_all();
           tgChannelSend(s);
         } else if ((strcmp(command, "restart") == 0)) {
           s = "Restarting...";
@@ -773,4 +821,11 @@ void loop(void) {
     //restartFunc();
     do_restart = true;
   }
+}
+
+void handlePingAll() {
+  digitalWrite(led, 1);
+  initpostFormRoot();
+  server.send(200, "text/html", top + ping_all_html() + bot);
+  digitalWrite(led, 0);
 }
