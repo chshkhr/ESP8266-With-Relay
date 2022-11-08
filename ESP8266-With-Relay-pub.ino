@@ -1,6 +1,6 @@
 #define TELEGRAM
 #define BLYNK
-#define VERSION "1.0.29"
+#define VERSION "1.1.3"
 
 #ifdef TELEGRAM
 #define SKETCH_VERSION VERSION " Tg"
@@ -63,6 +63,57 @@ char* channel = "@YorChannel";
 #endif
 
 ESP8266WiFiMulti wifiMulti;
+
+#include <DHT.h>
+#define DHTPIN 2
+
+DHT dht11(DHTPIN, DHT11);
+DHT dht21(DHTPIN, DHT21);
+float humidity, temp;  // Values read from sensor
+float t_add = 0;
+float h_add = 0;
+bool is_dht11 = true;
+bool has_dht = false;
+
+// Generally, you should use "unsigned long" for variables that hold time
+unsigned long previousMillis = 0;  // will store last temp was read
+const long interval = 2000;        // interval at which to read sensor
+
+void gettemperature() {
+  // Wait at least 2 seconds seconds between measurements.
+  // if the difference between the current time and last time you read
+  // the sensor is bigger than the interval you set, read the sensor
+  // Works better than delay for things happening elsewhere also
+  unsigned long currentMillis = millis();
+
+  if (currentMillis - previousMillis >= interval) {
+    // save the last time you read the sensor
+    previousMillis = currentMillis;
+
+    // Reading temperature for humidity takes about 250 milliseconds!
+    // Sensor readings may also be up to 2 seconds 'old' (it's a very slow sensor)
+    // Check if any reads failed and exit early (to try again).
+    for (int i = 0; i < 10; i++) {
+      if (is_dht11) {
+        humidity = dht11.readHumidity();      // Read humidity (percent)
+        temp = dht11.readTemperature(false);  // Read temperature as Fahrenheit
+      } else {
+        humidity = dht21.readHumidity();      // Read humidity (percent)
+        temp = dht21.readTemperature(false);  // Read temperature as Fahrenheit
+      }
+
+      if (isnan(humidity) || isnan(temp) || temp > 1000 || humidity > 1000) {
+        delay(500);
+      } else {
+        humidity += h_add;
+        temp += t_add;
+        return;
+      }
+    }
+    humidity = 0;
+    temp = 0;
+  }
+}
 
 const int numssisds = 5;
 const char* ssids[numssisds] = { "WiFi-AP1", "WiFi-AP2", "WiFi-AP3" };
@@ -456,7 +507,16 @@ void initpostFormRoot(void) {
     color = "gray";
   }
 
-  postFormRoot = "<form method=\"post\" enctype=\"application/x-www-form-urlencoded\" action=\"/switch/\">\
+  if (has_dht) {
+    gettemperature();
+    char buff[60];
+    sprintf(buff, "Humidity = %.0f%s, Temperature = %.1f&#176;C<br>", humidity, "%", temp);
+    postFormRoot = String(buff);
+  } else {
+    postFormRoot = "";
+  }
+
+  postFormRoot += "<form method=\"post\" enctype=\"application/x-www-form-urlencoded\" action=\"/switch/\">\
       <table>\
       <tr><td><label for=\"password\">Password: </label></td>\
       <td><input type=\"password\" id=\"password\" name=\"password\" value=\"\" required></td></tr>\
@@ -477,9 +537,9 @@ void initpostFormRoot(void) {
         <option value=\"3600000\">1h</option>\
       </select></td></tr>\
       <tr><td><span class=\"dot"
-                 + color + "\"></span></td>\
+                  + color + "\"></span></td>\
       <td align=\"right\"><input type=\"submit\" value=\""
-                 + butLbl + "\"></td></tr>\
+                  + butLbl + "\"></td></tr>\
       </table>\
       </form>\
       <a href=\"/updform/\">Update Firmware</a>\
@@ -545,6 +605,12 @@ void initpostFormUpdate(void) {
     <a href=\"/\">Switcher</a>";
 }
 
+void handlePingAll() {
+  digitalWrite(led, 1);
+  server.send(200, "text/html", top + ping_all_html() + bot);
+  digitalWrite(led, 0);
+}
+
 void setup(void) {
   WiFi.persistent(false);
 
@@ -574,6 +640,14 @@ void setup(void) {
       if (deviceip.equals(pcs[i][0])) {
         iListIndex = i;
         device = pcs[i][1];
+
+        has_dht = pcs[i][8] != "";
+        if (has_dht) {
+          is_dht11 = pcs[i][8] == "11";
+          t_add = String(pcs[i][6]).toFloat();
+          h_add = String(pcs[i][7]).toFloat();
+        }
+
         serverip.fromString(pcs[i][4]);
         if (pcs[i][3] == "r") {
           L0 = 1;
@@ -606,6 +680,15 @@ void setup(void) {
           Blynk.virtualWrite(V0, 0);
         }
 #endif
+
+        if (has_dht) {
+          if (is_dht11) {
+            dht11.begin();
+          } else {
+            dht21.begin();
+          }
+        }
+
         break;
       }
     }
@@ -648,8 +731,11 @@ void setup(void) {
           + device + "</h1>" + ssid + "<br>\
           <small>" SKETCH_VERSION "<br>\
           Server: "
-          + serverip.toString() + " </small><br>\
-        <div>";
+          + serverip.toString() + "<br>";
+    if (has_dht) {
+      top = top + "DHT" + pcs[iListIndex][8] + "<br>";
+    }
+    top += "</small><div>";
 
     server.on("/", handleRoot);
     server.on("/updform/", handleUpdForm);
@@ -773,7 +859,16 @@ void loop(void) {
 
         char* command = strtok(buf, " ");
         String s = "";
-        if (strcmp(command, "switch") == 0) {
+        if (strcmp(command, "dht") == 0) {
+          if (has_dht) {
+            gettemperature();
+            s = String("humidity: ") + String((int)humidity) + "%,\n";
+            s += String("temperature: ") + String(temp) + "&#176;C\n";
+          } else {
+            s = "DHT sensor not available";
+          }
+          tgChannelSend(s);
+        } else if (strcmp(command, "switch") == 0) {
           s = strtok(NULL, " ");
           int dl = s.toInt();
           if (dl == 0) {
@@ -781,6 +876,7 @@ void loop(void) {
           }
           s = String("Switch ") + dl;
           switcher(dl);
+
         } else if ((strcmp(command, "ping") == 0)) {
           s = String("Ping ") + serverip.toString();
           myBot.sendMessage(msg, s);
@@ -821,11 +917,4 @@ void loop(void) {
     //restartFunc();
     do_restart = true;
   }
-}
-
-void handlePingAll() {
-  digitalWrite(led, 1);
-  initpostFormRoot();
-  server.send(200, "text/html", top + ping_all_html() + bot);
-  digitalWrite(led, 0);
 }
