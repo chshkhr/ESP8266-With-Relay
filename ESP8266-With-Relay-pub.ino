@@ -1,17 +1,10 @@
 #define TELEGRAM
-#define BLYNK
-#define VERSION "1.1.3"
+#define VERSION "1.1.6"
 
 #ifdef TELEGRAM
 #define SKETCH_VERSION VERSION " Tg"
 #else
 #define SKETCH_VERSION VERSION
-#endif
-
-#ifdef BLYNK
-#define BLYNK_TEMPLATE_ID "TMPLwvNcgN8Z"
-#define BLYNK_DEVICE_NAME "switch"
-bool blynk = false;
 #endif
 
 #define WEB_PASSWORD "your password"
@@ -20,15 +13,10 @@ bool blynk = false;
 int L0 = 0;
 int L1 = 1;
 
-#include <ESP8266WiFi.h>
 #include <WiFiClient.h>
 #include <ESP8266WebServer.h>
 #include <ESP8266mDNS.h>
 #include <ESP8266Ping.h>
-
-#ifdef BLYNK
-#include <BlynkSimpleEsp8266.h>
-#endif
 
 #include <ESP8266WiFiMulti.h>
 
@@ -115,15 +103,24 @@ void gettemperature() {
   }
 }
 
-const int numssisds = 5;
+const int numssisds = 3;
 const char* ssids[numssisds] = { "WiFi-AP1", "WiFi-AP2", "WiFi-AP3" };
 const char* pass = "your wifi password";
-const int numpcs = 4;
-const char* pcs[numpcs][6] = {
-  { "192.168.0.193", "PC name 1", "BLYNK_AUTH_TOKEN_1", "d", "192.168.0.4", "telegram Token 1" },
-  { "192.168.0.194", "PC name 2", "BLYNK_AUTH_TOKEN_2", "d", "192.168.0.34", "telegram Token 2" },
-  { "192.168.0.195", "PC name 3 (local only)", "", "r", "192.168.0.50", "telegram Token 3" },
-  { "192.168.0.196", "PC name 4 (local only)", "", "r", "192.168.0.3", "telegram Token 4" }
+
+#define MY_IP 0 
+#define MY_NAME 1
+#define REVERSE 2
+#define SERV_IP 3
+#define TG_TOKEN 4
+#define DHT_T_ADD 5
+#define DHT_H_ADD 6
+#define DHT_ID 7
+
+const int numpcs = 3;
+const char* pcs[numpcs][8] = {
+  { "192.168.0.193", "PC name 1", "d", "192.168.0.4", "telegram Token 1", "0", "0", "11" },
+  { "192.168.0.194", "PC name 2", "d", "192.168.0.34", "telegram Token 2", "1.1", "-2", "21" },
+  { "192.168.0.195", "PC name 3", "r", "192.168.0.50", "telegram Token 3", "", "", "" },
 };
 
 String ssid;
@@ -147,16 +144,14 @@ const String bot = "\
 String postFormRoot;
 String postFormUpdate;
 
-#ifdef BLYNK
-BLYNK_WRITE(V0) {
-  //int value = param.asInt();
-  digitalWrite(pin, L1);
-  //Blynk.virtualWrite(V0, 1);
-  delay(bldelay);
-  digitalWrite(pin, L0);
-  //Blynk.virtualWrite(V0, 0);
-}
+void switcher(int waitmsec) {
+#ifdef TELEGRAM
+  tgChannelSend(String("Switch ") + waitmsec);
 #endif
+  digitalWrite(pin, L1);
+  delay(waitmsec);
+  digitalWrite(pin, L0);
+}
 
 void handleRoot() {
   Serial.print("Root request\n");
@@ -287,8 +282,8 @@ int iListIndex = -1;
 void updateOthers(String firmware) {
   for (int i = 0; i < numpcs; i++) {
     if (i != iListIndex) {
-      Serial.println(deviceip + " is sending update request to " + pcs[i][0]);
-      updateOtherDevice(pcs[i][0], firmware);
+      Serial.println(deviceip + " is sending update request to " + pcs[i][MY_IP]);
+      updateOtherDevice(pcs[i][MY_IP], firmware);
     }
   }
 };
@@ -403,15 +398,6 @@ void handleUpdate() {
       do_restart = true;
     }
   }
-}
-
-void switcher(int waitmsec) {
-#ifdef TELEGRAM
-  tgChannelSend(String("Switch ") + waitmsec);
-#endif
-  digitalWrite(pin, L1);
-  delay(waitmsec);
-  digitalWrite(pin, L0);
 }
 
 void handleSwitch() {
@@ -637,19 +623,19 @@ void setup(void) {
     Serial.println(String("Connected: ") + ssid + " - " + deviceip);
 
     for (int i = 0; i < numpcs; i++) {
-      if (deviceip.equals(pcs[i][0])) {
+      if (deviceip.equals(pcs[i][MY_IP])) {
         iListIndex = i;
-        device = pcs[i][1];
+        device = pcs[i][MY_NAME];
 
-        has_dht = pcs[i][8] != "";
+        has_dht = pcs[i][DHT_ID] != "";
         if (has_dht) {
-          is_dht11 = pcs[i][8] == "11";
-          t_add = String(pcs[i][6]).toFloat();
-          h_add = String(pcs[i][7]).toFloat();
+          is_dht11 = pcs[i][DHT_ID] == "11";
+          t_add = String(pcs[i][DHT_T_ADD]).toFloat();
+          h_add = String(pcs[i][DHT_H_ADD]).toFloat();
         }
 
-        serverip.fromString(pcs[i][4]);
-        if (pcs[i][3] == "r") {
+        serverip.fromString(pcs[i][SERV_IP]);
+        if (pcs[i][REVERSE] == "r") {
           L0 = 1;
           L1 = 0;
         }
@@ -658,26 +644,9 @@ void setup(void) {
         digitalWrite(pin, L0);
 
 #ifdef TELEGRAM
-        tgavail = strlen(pcs[i][5]) > 0;
+        tgavail = strlen(pcs[i][TG_TOKEN]) > 0;
         if (tgavail) {
-          String(pcs[i][5]).toCharArray(token, strlen(pcs[i][5]) + 1);
-        }
-#endif
-
-#ifdef BLYNK
-        String auth = pcs[i][2];
-        int auth_len = auth.length() + 1;
-        blynk = auth.length() > 1;
-        if (blynk) {
-          char c_auth[auth_len + 1];
-          auth.toCharArray(c_auth, auth_len);
-
-          int ssid_len = ssid.length() + 1;
-          char c_ssid[ssid_len];
-          ssid.toCharArray(c_ssid, ssid_len);
-
-          Blynk.begin(c_auth, c_ssid, pass);
-          Blynk.virtualWrite(V0, 0);
+          String(pcs[i][TG_TOKEN]).toCharArray(token, strlen(pcs[i][TG_TOKEN]) + 1);
         }
 #endif
 
@@ -733,7 +702,7 @@ void setup(void) {
           Server: "
           + serverip.toString() + "<br>";
     if (has_dht) {
-      top = top + "DHT" + pcs[iListIndex][8] + "<br>";
+      top = top + "DHT" + pcs[iListIndex][DHT_ID] + "<br>";
     }
     top += "</small><div>";
 
@@ -783,14 +752,14 @@ String ping_all() {
   String s = "";
   IPAddress ip;
   for (int i = 0; i < numpcs; i++) {
-    ip.fromString(pcs[i][4]);
-    s += pcs[i][1];
+    ip.fromString(pcs[i][SERV_IP]);
+    s += pcs[i][MY_NAME];
     if (Ping.ping(ip)) {
       s += " - SUCCESS";
     } else {
       s += " - fail";
     }
-    ip.fromString(pcs[i][0]);
+    ip.fromString(pcs[i][MY_IP]);
     if (i == iListIndex || Ping.ping(ip)) {
       s += ", bot ONLINE\n";
     } else {
@@ -805,10 +774,10 @@ String ping_all_html() {
   IPAddress ip;
   for (int i = 0; i < numpcs; i++) {
     s += "<tr><td>";
-    ip.fromString(pcs[i][4]);
-    s += pcs[i][1];
+    ip.fromString(pcs[i][SERV_IP]);
+    s += pcs[i][MY_NAME];
     s += "</td><td><a href=http://";
-    s += pcs[i][4];
+    s += pcs[i][SERV_IP];
     s += ">";
     if (Ping.ping(ip)) {
       s += "ONLINE";
@@ -816,9 +785,9 @@ String ping_all_html() {
       s += "offline";
     }
     s += "</a></td><td><a href=http://";
-    s += pcs[i][0];
+    s += pcs[i][MY_NAME];
     s += ">";
-    ip.fromString(pcs[i][0]);
+    ip.fromString(pcs[i][MY_IP]);
     if (i == iListIndex || Ping.ping(ip)) {
       s += "ONLINE";
     } else {
@@ -839,11 +808,6 @@ void loop(void) {
 
   if (WiFi.status() == WL_CONNECTED) {
     server.handleClient();
-#ifdef BLYNK
-    if (blynk) {
-      Blynk.run();
-    }
-#endif
 
 #ifdef TELEGRAM
     if (tgavail) {
