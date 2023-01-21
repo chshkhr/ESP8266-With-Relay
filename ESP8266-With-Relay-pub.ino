@@ -1,5 +1,5 @@
 #define TELEGRAM
-#define VERSION "1.1.6"
+#define VERSION "1.1.13"
 
 #ifdef TELEGRAM
 #define SKETCH_VERSION VERSION " Tg"
@@ -530,6 +530,14 @@ void initpostFormRoot(void) {
       </form>\
       <a href=\"/updform/\">Update Firmware</a>\
       <a href=\"/pingall/\">Ping All</a>";
+  for(int i = 0; i < numpcs; i ++) 
+    if (i != iListIndex) {
+      postFormRoot += " <a href=\"http://";
+      postFormRoot += pcs[i][0];
+      postFormRoot += "/\">";
+      postFormRoot += pcs[i][1];
+      postFormRoot += "</a>";
+    }
 }
 
 void initpostFormUpdate(void) {
@@ -806,7 +814,7 @@ void loop(void) {
   if (do_update)
     doUpdate();
 
-  if (WiFi.status() == WL_CONNECTED) {
+  if (wifiMulti.run(connectTimeoutMs) == WL_CONNECTED) {
     server.handleClient();
 
 #ifdef TELEGRAM
@@ -815,7 +823,7 @@ void loop(void) {
       TBMessage msg;
 
       // if there is an incoming message...
-      if (myBot.getNewMessage(msg)) {
+      if (myBot.getNewMessage(msg) && msg.chatId == userid) {
 
         int l = msg.text.length() + 1;
         char buf[l];
