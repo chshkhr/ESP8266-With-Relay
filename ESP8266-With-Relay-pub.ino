@@ -1,5 +1,5 @@
 #define TELEGRAM
-#define VERSION "1.1.13"
+#define VERSION "1.2.1"
 
 #ifdef TELEGRAM
 #define SKETCH_VERSION VERSION " Tg"
@@ -52,57 +52,6 @@ char* channel = "@YorChannel";
 
 ESP8266WiFiMulti wifiMulti;
 
-#include <DHT.h>
-#define DHTPIN 2
-
-DHT dht11(DHTPIN, DHT11);
-DHT dht21(DHTPIN, DHT21);
-float humidity, temp;  // Values read from sensor
-float t_add = 0;
-float h_add = 0;
-bool is_dht11 = true;
-bool has_dht = false;
-
-// Generally, you should use "unsigned long" for variables that hold time
-unsigned long previousMillis = 0;  // will store last temp was read
-const long interval = 2000;        // interval at which to read sensor
-
-void gettemperature() {
-  // Wait at least 2 seconds seconds between measurements.
-  // if the difference between the current time and last time you read
-  // the sensor is bigger than the interval you set, read the sensor
-  // Works better than delay for things happening elsewhere also
-  unsigned long currentMillis = millis();
-
-  if (currentMillis - previousMillis >= interval) {
-    // save the last time you read the sensor
-    previousMillis = currentMillis;
-
-    // Reading temperature for humidity takes about 250 milliseconds!
-    // Sensor readings may also be up to 2 seconds 'old' (it's a very slow sensor)
-    // Check if any reads failed and exit early (to try again).
-    for (int i = 0; i < 10; i++) {
-      if (is_dht11) {
-        humidity = dht11.readHumidity();      // Read humidity (percent)
-        temp = dht11.readTemperature(false);  // Read temperature as Fahrenheit
-      } else {
-        humidity = dht21.readHumidity();      // Read humidity (percent)
-        temp = dht21.readTemperature(false);  // Read temperature as Fahrenheit
-      }
-
-      if (isnan(humidity) || isnan(temp) || temp > 1000 || humidity > 1000) {
-        delay(500);
-      } else {
-        humidity += h_add;
-        temp += t_add;
-        return;
-      }
-    }
-    humidity = 0;
-    temp = 0;
-  }
-}
-
 const int numssisds = 3;
 const char* ssids[numssisds] = { "WiFi-AP1", "WiFi-AP2", "WiFi-AP3" };
 const char* pass = "your wifi password";
@@ -112,15 +61,13 @@ const char* pass = "your wifi password";
 #define REVERSE 2
 #define SERV_IP 3
 #define TG_TOKEN 4
-#define DHT_T_ADD 5
-#define DHT_H_ADD 6
-#define DHT_ID 7
+#define TB_TOKEN 5
 
 const int numpcs = 3;
-const char* pcs[numpcs][8] = {
-  { "192.168.0.193", "PC name 1", "d", "192.168.0.4", "telegram Token 1", "0", "0", "11" },
-  { "192.168.0.194", "PC name 2", "d", "192.168.0.34", "telegram Token 2", "1.1", "-2", "21" },
-  { "192.168.0.195", "PC name 3", "r", "192.168.0.50", "telegram Token 3", "", "", "" },
+const char* pcs[numpcs][6] = {
+  { "192.168.0.193", "PC name 1", "d", "192.168.0.4", "telegram Token 1", "ThingsBoard Token 1" },
+  { "192.168.0.194", "PC name 2", "d", "192.168.0.34", "telegram Token 2", "ThingsBoard Token 2" },
+  { "192.168.0.195", "PC name 3", "r", "192.168.0.50", "telegram Token 3", "ThingsBoard Token 3" },
 };
 
 String ssid;
@@ -133,6 +80,71 @@ ESP8266WebServer server(80);
 
 const int led = LED_BUILTIN;
 const int pin = 0;  // using GP0 esp8266
+
+#define TB_SERVER  "192.168.0.43:8081"
+int tb_interval = 60000;
+char tb_token[21] = "";
+
+char tb_url[128] = "";
+unsigned long tb_prevMs = 0;
+unsigned long tb_curMs = 0;
+
+void tb_send(char* buf){
+  WiFiClient client;
+  HTTPClient http;
+
+  if (strlen(tb_url) == 0)
+    sprintf(tb_url, "http://" TB_SERVER "/api/v1/%s/telemetry", tb_token);     
+  http.begin(client, tb_url);
+  http.addHeader("Content-Type", "application/json");
+
+  int httpCode = http.POST(buf);
+  if (httpCode != 200) {
+      Serial.println(tb_url);
+      Serial.println(buf);
+      Serial.print("HTTP Response code is: ");
+      Serial.println(httpCode);
+  }
+  http.end();
+}
+
+byte rx_pin_state = 1;
+byte rx_pin_check_count = 0;
+unsigned int rx_count = 0;
+unsigned long rx_prev_ms = 0;
+
+void handleThingsBoard(bool forced = false) {
+  if ((forced || tb_interval) && strlen(tb_token)) {            
+    tb_curMs = millis();
+    if (forced || (tb_curMs - tb_prevMs >= tb_interval)) {
+      tb_prevMs = tb_curMs;
+
+      char buf[128];
+      sprintf(buf, "{\"online\": 1, \"rx_pin_state\": %d}", rx_pin_state);
+      tb_send(buf);
+    }  
+  }
+}
+
+void handleRxPin(void){
+  if (digitalRead(3) != rx_pin_state) {
+    rx_count++;
+    if (rx_count > 1000) {
+      unsigned long ms = millis();
+      char buf[128];
+      sprintf(buf, "{\"rx_pin_state\": %d}", rx_pin_state);
+      tb_send(buf);
+      rx_pin_state = !rx_pin_state; 
+      sprintf(buf, "{\"rx_pin_state\": %d, \"rx_pin_sec%u\": %d}", rx_pin_state, !rx_pin_state, (ms - rx_prev_ms) / 1000);
+      tb_send(buf);
+      Serial.println(buf);
+      rx_prev_ms = ms;
+      rx_count = 0;
+    }
+  } else {
+    rx_count = 0;
+  }
+}
 
 String top;
 
@@ -493,16 +505,7 @@ void initpostFormRoot(void) {
     color = "gray";
   }
 
-  if (has_dht) {
-    gettemperature();
-    char buff[60];
-    sprintf(buff, "Humidity = %.0f%s, Temperature = %.1f&#176;C<br>", humidity, "%", temp);
-    postFormRoot = String(buff);
-  } else {
-    postFormRoot = "";
-  }
-
-  postFormRoot += "<form method=\"post\" enctype=\"application/x-www-form-urlencoded\" action=\"/switch/\">\
+  postFormRoot = "<form method=\"post\" enctype=\"application/x-www-form-urlencoded\" action=\"/switch/\">\
       <table>\
       <tr><td><label for=\"password\">Password: </label></td>\
       <td><input type=\"password\" id=\"password\" name=\"password\" value=\"\" required></td></tr>\
@@ -608,6 +611,8 @@ void handlePingAll() {
 void setup(void) {
   WiFi.persistent(false);
 
+  Serial.begin(115200, SERIAL_8N1, SERIAL_TX_ONLY); //to use RX as INPUT PIN
+
   pinMode(led, OUTPUT);
   digitalWrite(led, 0);
   Serial.begin(115200);
@@ -634,13 +639,7 @@ void setup(void) {
       if (deviceip.equals(pcs[i][MY_IP])) {
         iListIndex = i;
         device = pcs[i][MY_NAME];
-
-        has_dht = pcs[i][DHT_ID] != "";
-        if (has_dht) {
-          is_dht11 = pcs[i][DHT_ID] == "11";
-          t_add = String(pcs[i][DHT_T_ADD]).toFloat();
-          h_add = String(pcs[i][DHT_H_ADD]).toFloat();
-        }
+        strcpy(tb_token, pcs[i][TB_TOKEN]);
 
         serverip.fromString(pcs[i][SERV_IP]);
         if (pcs[i][REVERSE] == "r") {
@@ -657,14 +656,6 @@ void setup(void) {
           String(pcs[i][TG_TOKEN]).toCharArray(token, strlen(pcs[i][TG_TOKEN]) + 1);
         }
 #endif
-
-        if (has_dht) {
-          if (is_dht11) {
-            dht11.begin();
-          } else {
-            dht21.begin();
-          }
-        }
 
         break;
       }
@@ -709,9 +700,7 @@ void setup(void) {
           <small>" SKETCH_VERSION "<br>\
           Server: "
           + serverip.toString() + "<br>";
-    if (has_dht) {
-      top = top + "DHT" + pcs[iListIndex][DHT_ID] + "<br>";
-    }
+
     top += "</small><div>";
 
     server.on("/", handleRoot);
@@ -817,6 +806,9 @@ void loop(void) {
   if (wifiMulti.run(connectTimeoutMs) == WL_CONNECTED) {
     server.handleClient();
 
+    handleThingsBoard();
+    handleRxPin();
+
 #ifdef TELEGRAM
     if (tgavail) {
       // local variable to store telegram message data
@@ -831,16 +823,7 @@ void loop(void) {
 
         char* command = strtok(buf, " ");
         String s = "";
-        if (strcmp(command, "dht") == 0) {
-          if (has_dht) {
-            gettemperature();
-            s = String("humidity: ") + String((int)humidity) + "%,\n";
-            s += String("temperature: ") + String(temp) + "&#176;C\n";
-          } else {
-            s = "DHT sensor not available";
-          }
-          tgChannelSend(s);
-        } else if (strcmp(command, "switch") == 0) {
+        if (strcmp(command, "switch") == 0) {
           s = strtok(NULL, " ");
           int dl = s.toInt();
           if (dl == 0) {
