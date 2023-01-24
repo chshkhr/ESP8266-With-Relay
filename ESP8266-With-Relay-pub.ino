@@ -1,5 +1,5 @@
 #define TELEGRAM
-#define VERSION "1.2.1"
+#define VERSION "1.2.2"
 
 #ifdef TELEGRAM
 #define SKETCH_VERSION VERSION " Tg"
@@ -504,6 +504,8 @@ void initpostFormRoot(void) {
     butLbl = "On-Off Relay";
     color = "gray";
   }
+
+  ssid = WiFi.SSID();
 
   postFormRoot = "<form method=\"post\" enctype=\"application/x-www-form-urlencoded\" action=\"/switch/\">\
       <table>\
